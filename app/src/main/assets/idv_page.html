@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OneSDK Onboarding</title>
+  <script src="https://assets.dev.frankiefinancial.io/one-sdk/RC/oneSdk.umd.js"></script>
+</head>
+<body style="background-color: white" onload="startOneSdk()">
+<div id="idv-container" style="position:fixed;top: 0;left: 0; width: 100%; height: 100%;"></div>
+
+<script>
+    async function startOneSdk() {
+        const CUSTOMER_ID = "12382455-81cc-32e1-1b06-8c7ea7c934e2"
+        const CUSTOMER_CHILD_ID = "614c9fbd-6650-de32-4820-4194434af45e"
+        const API_KEY = "25af7bf34a733a169767e2dcc23749f6faaae5d4aded7b1c76e67ed4ca529ef7040b18895484ef756de54d8443ac822536951d28ca41b5a99f7d5d771a3fcc47"
+
+        try {
+          const tokenResultRaw = await fetch("https://backend.kycaml.uat.frankiefinancial.io/auth/v2/machine-session", {
+              method: "POST",
+              headers: {
+                  "authorization": "machine " + btoa(`${CUSTOMER_ID}:${CUSTOMER_CHILD_ID}:${API_KEY}`),
+                  "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                  permissions: {
+                      "preset": "one-sdk",
+                      "reference": "rory-test2"
+                  }
+              })
+          });
+
+          if (!tokenResultRaw.ok) {
+            console.error("Failed to fetch session token");
+            return;
+          }
+
+          const tokenResult = await tokenResultRaw.json();
+          const sessionObjectFromBackend = tokenResult;
+
+          console.log("Token:", sessionObjectFromBackend?.token);
+
+          const oneSdk = await OneSdk({
+              session: {
+                token: sessionObjectFromBackend?.token,
+                persist: true,
+                appReference: "VMA Web"
+              },
+              recipe: {
+                idv: {
+                  provider: {
+                    name: "ocrlabs"
+                  }
+                }
+              },
+              mode: "development"
+            });
+
+          const idv = oneSdk.flow("idv");
+          const individual = oneSdk.individual();
+
+          individual.addConsent("general");
+          individual.addConsent("docs");
+          individual.addConsent("creditheader");
+
+          idv.on("results", async ({checkStatus, document, entityId}) => {
+              if (checkStatus) {
+                console.log("Results successful");
+                console.log(checkStatus);
+                console.log(document);
+                console.log(entityId);
+              } else {
+                console.log("No data returned");
+              }
+          });
+
+          idv.on("error", ({ message, payload }) => {
+            console.log("Received error");
+            console.log(message, payload);
+          });
+
+          idv.on("detection_complete", (message) => {
+            console.log("Capture finished");
+            console.log(message);
+          });
+
+          idv.on("*", (message) => {
+            console.log(message);
+          });
+
+          idv.mount("#idv-container");
+        } catch (error) {
+          console.error("Error:", error);
+        }
+    }
+  </script>
+
+<style>
+    /* Add any custom styles here if needed */
+  </style>
+</body>
+</html>
