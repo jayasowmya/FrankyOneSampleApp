@@ -1,26 +1,23 @@
 package com.example.frankyonesampleapp
 
-import android.Manifest
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.net.http.SslError
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
-import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
-import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.helper.widget.MotionEffect
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
@@ -29,10 +26,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+
 class WebViewActivity : AppCompatActivity() {
     private var uri: Uri? = null
-    private var takeDocumentPicture: ActivityResultLauncher<Uri>? = null
-    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var pathCallback: ValueCallback<Array<Uri>>? = null
+    private val REQUEST_IMAGE =101
+
 
     @Throws(IOException::class)
     private fun createImageFile(): File? {
@@ -47,6 +46,7 @@ class WebViewActivity : AppCompatActivity() {
             ".jpg",  /* suffix */
             storageDir /* directory */
         )
+        // Save a file: path for use with ACTION_VIEW intents
         return image
     }
 
@@ -70,38 +70,10 @@ class WebViewActivity : AppCompatActivity() {
 
         myWebView.webChromeClient = MyWebChromeClient()
 
-        myWebView.loadUrl("https://staging.boqgroup.idkit.co/4f6fd7f7-fdee-4f2e-bc6a-1c272899774f")
-
-        takeDocumentPicture =
-            registerForActivityResult(ActivityResultContracts.TakePicture()) { success: Boolean ->
-                if (success) {
-                    // The image was saved into the given Uri -> do something with it
-                    val msg = "Image captured successfully at : $uri"
-                    Log.v(MotionEffect.TAG, msg)
-                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-                    filePathCallback?.onReceiveValue(arrayOf(uri!!))
-                }
-            }
+        myWebView.loadUrl("https://staging.boqgroup.idkit.co/6a570a0e-4405-44f4-a62b-7ba38d6741df")
     }
 
     private inner class MyWebChromeClient : WebChromeClient() {
-
-        override fun onPermissionRequest(request: PermissionRequest?) {
-            //super.onPermissionRequest(request)
-            Log.i(MotionEffect.TAG, "onPermissionRequest ${request?.resources}");
-            val requestedResources = request!!.resources
-            for (r in requestedResources) {
-                if (r == PermissionRequest.RESOURCE_VIDEO_CAPTURE) {
-                    request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
-                    break
-                }
-            }
-        }
-
-        override fun onPermissionRequestCanceled(request: PermissionRequest?) {
-            super.onPermissionRequestCanceled(request)
-            Log.i(MotionEffect.TAG, "onPermissionRequestCanceled ${request?.resources}");
-        }
 
         override fun onShowFileChooser(
             webView: WebView?,
@@ -109,18 +81,76 @@ class WebViewActivity : AppCompatActivity() {
             fileChooserParams: FileChooserParams?
         ): Boolean {
             Log.v(MotionEffect.TAG, "Show a file chooser")
-            filePathCallback = filePathCallbackParam
 
-            uri = createImageFile()?.let {
-                FileProvider.getUriForFile(
-                    this@WebViewActivity,
-                    "com.example.frankyonesampleapp.fileprovider",
-                    it
-                )
+            if (pathCallback != null) {
+                pathCallback?.onReceiveValue(null)
+                pathCallback = null
             }
-            takeDocumentPicture?.launch(uri);
+            pathCallback = filePathCallbackParam
+            if (fileChooserParams?.isCaptureEnabled == true) {
+                var permissions = ArrayList<String>()
+                if(existCameraPermission()) {
+                    permissions.add(android.Manifest.permission.CAMERA);
+                }
+                if(existMemoryWritePermission()) {
+                    permissions.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
+                }
+                if(permissions.isNotEmpty()) {
+                    requestPermissions(permissions.toTypedArray(), 1);
+                } else {
+                    takePhoto()
+                }
+            } else {
+
+                val intent: Intent? = fileChooserParams?.createIntent()
+                try {
+                    intent?.let { startActivityForResult(it, REQUEST_IMAGE) }
+                } catch (e: ActivityNotFoundException) {
+                    pathCallback = null
+                    return false
+                }
+            }
 
             return true
+        }
+    }
+
+    private fun existMemoryWritePermission(): Boolean {
+        return (ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                == PackageManager.PERMISSION_DENIED)
+    }
+
+    private fun existCameraPermission(): Boolean {
+        return (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_DENIED)
+    }
+
+    fun takePhoto() {
+        var takePictureIntent: Intent? = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        if (takePictureIntent?.resolveActivity(packageManager) != null) {
+            var photoFile: File? = null
+            try {
+                photoFile = createImageFile()
+            } catch (ex: IOException) {
+                Log.d("error ================> ", ex.toString())
+            }
+            if (photoFile != null) {
+                var photoFileTmp = photoFile
+                uri = FileProvider.getUriForFile(this, "com.example.frankyonesampleapp.fileprovider", photoFile);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            }
+            startActivityForResult(takePictureIntent, REQUEST_IMAGE)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (resultCode == RESULT_OK && (requestCode == REQUEST_IMAGE)) {
+            if (pathCallback == null) {
+                return
+            }
+            pathCallback?.onReceiveValue(arrayOf(uri!!))
         }
     }
 }
